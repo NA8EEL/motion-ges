@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neural Motion | Gesture Classifier</title>
+    <script src="edge-impulse-standalone.js"></script>
+    <style>
+        :root {
+            --bg-color: #0b0c10;
+            --panel-bg: #1f2833;
+            --accent-cyan: #66fcf1;
+            --accent-blue: #45a29e;
+            --text-main: #c5c6c7;
+            --neon-glow: 0 0 10px rgba(102, 252, 241, 0.5), 0 0 20px rgba(102, 252, 241, 0.3);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: var(--neon-glow);
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+            width: 100%;
+            max-width: 800px;
+        }
+
+        .panel {
+            background: var(--panel-bg);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(102, 252, 241, 0.1);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+
+        /* Sensor Controls */
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        button#start-btn {
+            background: transparent;
+            color: var(--accent-cyan);
+            border: 2px solid var(--accent-cyan);
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: all 0.3s ease;
+        }
+
+        button#start-btn:hover {
+            background: var(--accent-cyan);
+            color: var(--bg-color);
+            box-shadow: var(--neon-glow);
+        }
+
+        .status-badge {
+            padding: 8px 12px;
+            border-radius: 6px;
+            background: #2c3e50;
+            font-size: 14px;
+            font-weight: bold;
+            border: 1px solid #34495e;
+        }
+
+        .status-badge.active {
+            background: rgba(102, 252, 241, 0.1);
+            color: var(--accent-cyan);
+            border-color: var(--accent-cyan);
+            box-shadow: inset 0 0 10px rgba(102, 252, 241, 0.2);
+        }
+
+        /* Waveform Canvas */
+        .canvas-container {
+            position: relative;
+            width: 100%;
+            height: 200px;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #333;
+        }
+        
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* Predictions */
+        .predictions {
+            display: flex;
+            justify-content: space-around;
+            text-align: center;
+        }
+
+        .class-indicator {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            opacity: 0.5;
+            transition: opacity 0.3s, transform 0.3s;
+        }
+
+        .class-indicator.winning {
+            opacity: 1;
+            transform: scale(1.1);
+        }
+
+        .prob-circle {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: 4px solid #444;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        .winning .prob-circle {
+            border-color: var(--accent-cyan);
+            box-shadow: var(--neon-glow);
+            color: var(--accent-cyan);
+        }
+
+        .confidence-badge {
+            margin-top: 20px;
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            color: #fff;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+        .confidence-badge span {
+            color: var(--accent-cyan);
+            text-shadow: var(--neon-glow);
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Neural Motion</h1>
+        <p>Real-Time Gesture Classifier</p>
+    </header>
+
+    <div class="dashboard">
+        <div class="panel controls">
+            <button id="start-btn">Initialize Sensors</button>
+            <div id="sensor-status" class="status-badge">Mode: INACTIVE</div>
+        </div>
+
+        <div class="panel">
+            <h3 style="margin-bottom: 10px; color: var(--accent-blue);">Live Telemetry (60fps)</h3>
+            <div class="canvas-container">
+                <canvas id="waveformCanvas"></canvas>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h3 style="margin-bottom: 20px; color: var(--accent-blue); text-align: center;">Inference Engine</h3>
+            <div class="predictions">
+                <div class="class-indicator" id="ind-circle">
+                    <div class="prob-circle" id="prob-circle">0%</div>
+                    <span>Circle</span>
+                </div>
+                <div class="class-indicator" id="ind-wave">
+                    <div class="prob-circle" id="prob-circle">0%</div>
+                    <span>Wave</span>
+                </div>
+                <div class="class-indicator" id="ind-idle">
+                    <div class="prob-circle" id="prob-circle">0%</div>
+                    <span>Idle</span>
+                </div>
+            </div>
+            <div class="confidence-badge" id="confidence-badge">
+                Detected: <span>WAITING...</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Configuration ---
+        const TARGET_FREQ_HZ = 62.5;
+        const INTERVAL_MS = 1000 / TARGET_FREQ_HZ; 
+        const MODEL_WINDOW_SIZE = 100; // Adjust this to match your Edge Impulse model's window size (number of readings)
+        const FEATURES_COUNT = MODEL_WINDOW_SIZE * 3; // X, Y, Z
+
+        // --- State ---
+        let rawDataBuffer = []; // Holds continuous {x, y, z} objects
+        let isInferencing = false;
+        
+        // Soft Gravity Filter Variables
+        let gravity = { x: 0, y: 0, z: 0 };
+        const alpha = 0.8; // High-pass filter constant
+
+        // --- DOM Elements ---
+        const startBtn = document.getElementById('start-btn');
+        const statusBadge = document.getElementById('sensor-status');
+        const canvas = document.getElementById('waveformCanvas');
+        const ctx = canvas.getContext('2d');
+        const confidenceBadge = document.querySelector('#confidence-badge span');
+
+        // Resize Canvas
+        function resizeCanvas() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // --- Visualizer (60fps HTML5 Canvas) ---
+        let visualHistory = [];
+        const maxHistory = 150;
+
+        function drawWaveform() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (visualHistory.length === 0) {
+                requestAnimationFrame(drawWaveform);
+                return;
+            }
+
+            const drawLine = (axis, color) => {
+                ctx.beginPath();
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                for (let i = 0; i < visualHistory.length; i++) {
+                    const x = (i / maxHistory) * canvas.width;
+                    const val = visualHistory[i][axis];
+                    // Scale and center (assuming accel range roughly -20 to 20 m/s2)
+                    const y = canvas.height / 2 - (val * (canvas.height / 40)); 
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+            };
+
+            drawLine('x', '#ff4757'); // Red for X
+            drawLine('y', '#2ed573'); // Green for Y
+            drawLine('z', '#1e90ff'); // Blue for Z
+
+            requestAnimationFrame(drawWaveform);
+        }
+        drawWaveform();
+
+        // --- Data Handling ---
+        function handleAcceleration(x, y, z) {
+            // Add to visualizer buffer
+            visualHistory.push({ x, y, z });
+            if (visualHistory.length > maxHistory) visualHistory.shift();
+
+            // Add to inference buffer
+            rawDataBuffer.push({ x, y, z });
+            if (rawDataBuffer.length > MODEL_WINDOW_SIZE) {
+                rawDataBuffer.shift(); // Keep buffer at exact window size
+            }
+        }
+
+        // --- Sensor Pipeline ---
+        async function initSensors() {
+            startBtn.style.display = 'none';
+            statusBadge.classList.add('active');
+
+            // Request iOS 13+ permission if needed
+            if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceMotionEvent.requestPermission();
+                    if (permission !== 'granted') {
+                        alert("Sensor permission denied.");
+                        return;
+                    }
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+
+            // Tier 1: W3C Generic Sensor API (LinearAccelerationSensor)
+            if ('LinearAccelerationSensor' in window) {
+                try {
+                    const sensor = new LinearAccelerationSensor({ frequency: TARGET_FREQ_HZ });
+                    sensor.addEventListener('reading', () => {
+                        handleAcceleration(sensor.x, sensor.y, sensor.z);
+                    });
+                    sensor.start();
+                    statusBadge.innerText = "Mode: Tier 1 (HW Sensor)";
+                    startInferenceLoop();
+                    return;
+                } catch (e) {
+                    console.warn("Tier 1 failed, falling back...", e);
+                }
+            }
+
+            // Tier 2 & 3: DeviceMotionEvent Fallbacks
+            window.addEventListener('devicemotion', (event) => {
+                let x, y, z;
+
+                if (event.acceleration && event.acceleration.x !== null) {
+                    // Tier 2: Native gravity-subtracted data
+                    x = event.acceleration.x;
+                    y = event.acceleration.y;
+                    z = event.acceleration.z;
+                    if(statusBadge.innerText !== "Mode: Tier 2 (DeviceMotion)") {
+                        statusBadge.innerText = "Mode: Tier 2 (DeviceMotion)";
+                    }
+                } else if (event.accelerationIncludingGravity) {
+                    // Tier 3: Soft Gravity Filter (High-pass filter)
+                    gravity.x = alpha * gravity.x + (1 - alpha) * event.accelerationIncludingGravity.x;
+                    gravity.y = alpha * gravity.y + (1 - alpha) * event.accelerationIncludingGravity.y;
+                    gravity.z = alpha * gravity.z + (1 - alpha) * event.accelerationIncludingGravity.z;
+
+                    x = event.accelerationIncludingGravity.x - gravity.x;
+                    y = event.accelerationIncludingGravity.y - gravity.y;
+                    z = event.accelerationIncludingGravity.z - gravity.z;
+                    if(statusBadge.innerText !== "Mode: Tier 3 (SW Filter)") {
+                        statusBadge.innerText = "Mode: Tier 3 (SW Filter)";
+                    }
+                }
+
+                if (x !== undefined && y !== undefined && z !== undefined) {
+                    handleAcceleration(x, y, z);
+                }
+            });
+
+            startInferenceLoop();
+        }
+
+        startBtn.addEventListener('click', initSensors);
+
+        // --- Edge Impulse WASM Integration ---
+        function startInferenceLoop() {
+            if (isInferencing) return;
+            isInferencing = true;
+
+            setInterval(() => {
+                if (rawDataBuffer.length < MODEL_WINDOW_SIZE) return; // Wait for full buffer
+                if (typeof Module === 'undefined' || !Module.run_classifier) return; // Wait for WASM to load
+
+                // Flatten buffer (X, Y, Z interleaved)
+                let features = [];
+                for (let i = 0; i < rawDataBuffer.length; i++) {
+                    features.push(rawDataBuffer[i].x);
+                    features.push(rawDataBuffer[i].y);
+                    features.push(rawDataBuffer[i].z);
+                }
+
+                // Allocate memory in WASM
+                const ptr = Module._malloc(features.length * 4); // 4 bytes per float
+                let floatArray = new Float32Array(Module.HEAPF32.buffer, ptr, features.length);
+                floatArray.set(features);
+
+                // Run inference
+                const resultStr = Module.run_classifier(ptr, features.length, false);
+                Module._free(ptr);
+                
+                try {
+                    const result = JSON.parse(resultStr);
+                    updateUI(result.classification);
+                } catch(e) {
+                    console.error("Error parsing model result:", e);
+                }
+
+            }, INTERVAL_MS);
+        }
+
+        function updateUI(classification) {
+            let highestProb = 0;
+            let winningClass = "Idle"; // Default
+
+            // Reset UI states
+            document.querySelectorAll('.class-indicator').forEach(el => el.classList.remove('winning'));
+
+            // Map results to UI
+            for (let label in classification) {
+                const prob = Math.round(classification[label] * 100);
+                const safeLabel = label.toLowerCase();
+                
+                const element = document.getElementById(`ind-${safeLabel}`);
+                if (element) {
+                    element.querySelector('.prob-circle').innerText = `${prob}%`;
+                    
+                    if (prob > highestProb) {
+                        highestProb = prob;
+                        winningClass = label;
+                    }
+                }
+            }
+
+            // Highlight winner if confidence is high enough (>60%)
+            if (highestProb > 60) {
+                confidenceBadge.innerText = winningClass.toUpperCase();
+                const winningElement = document.getElementById(`ind-${winningClass.toLowerCase()}`);
+                if (winningElement) winningElement.classList.add('winning');
+            } else {
+                confidenceBadge.innerText = "UNCERTAIN";
+            }
+        }
+    </script>
+</body>
+</html>
