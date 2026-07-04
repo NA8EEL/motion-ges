@@ -1,7 +1,0 @@
-{
-  "version": 2,
-  "routes": [
-    { "src": "^/$", "dest": "/public/intex.html" },
-    { "src": "^/(.*)$", "dest": "/public/$1" }
-  ]
-}
